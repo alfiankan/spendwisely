@@ -34,7 +34,20 @@
   async function fetchBudget() {
     try {
       const data = await execQuery(`SELECT value FROM settings WHERE key = 'budget'`);
-      const budget = data.result?.[0]?.results?.[0]?.value;
+      console.log('Budget API Response:', data);
+      
+      // Try different possible response structures
+      let budget = 0;
+      if (data.result?.[0]?.results?.[0]?.value) {
+        budget = data.result[0].results[0].value;
+      } else if (data.results?.[0]?.value) {
+        budget = data.results[0].value;
+      } else if (data.result?.[0]?.value) {
+        budget = data.result[0].value;
+      } else if (data.value) {
+        budget = data.value;
+      }
+      
       BUDGET = budget ? Number(budget) : 0;
       console.log('Budget loaded:', BUDGET);
     } catch (error) {
@@ -56,9 +69,23 @@
       console.log('Fetching expenses with SQL:', sql, 'Params:', params);
       const data = await execQuery(sql, params);
       console.log('API Response:', data);
+      console.log('API Response structure:', JSON.stringify(data, null, 2));
       
-      expenses = data.result?.[0]?.results || [];
+      // Try different possible response structures
+      let results = [];
+      if (data.result?.[0]?.results) {
+        results = data.result[0].results;
+      } else if (data.results) {
+        results = data.results;
+      } else if (data.result) {
+        results = data.result;
+      } else if (Array.isArray(data)) {
+        results = data;
+      }
+      
+      expenses = results;
       console.log('Expenses loaded:', expenses.length, 'items');
+      console.log('First expense:', expenses[0]);
     } catch (err) {
       console.error('Error fetching expenses:', err);
       error = 'Failed to load expenses. Please check console for details.';

@@ -55,10 +55,8 @@
     }
   }
 
-  async function handleSubmit(e?: SubmitEvent) {
-    if (e) {
-      e.preventDefault();
-    }
+  async function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
     loading = true;
     uploadingFiles = true;
     
@@ -116,7 +114,7 @@
 </script>
 
 <h2 class="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">New Expense</h2>
-  <form class="max-w-lg space-y-4" onsubmit={handleSubmit}>
+  <form class="max-w-lg space-y-4" onsubmit={(e) => handleSubmit(e)}>
   <div>
     <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Title</label>
     <input class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" bind:value={form.title} name="title" placeholder="Title" required />

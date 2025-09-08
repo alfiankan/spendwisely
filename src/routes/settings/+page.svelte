@@ -141,7 +141,7 @@
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-600 p-6">
   <h3 class="text-lg font-medium mb-6 text-gray-900 dark:text-white">Update Settings</h3>
   
-  <form class="space-y-6" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+  <form class="space-y-6" onsubmit={(e) => handleSubmit(e)}>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
         <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Budget (Rp)</label>
@@ -181,7 +181,7 @@
     <div class="flex justify-end">
       <button 
         type="submit" 
-        class="text-white bg-blue-700 dark:bg-blue-600 hover:bg-blue-800 dark:hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-8 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={loading}
       >
         {loading ? 'Saving...' : 'Save Settings'}
