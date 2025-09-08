@@ -109,8 +109,9 @@ export class SettingsModel extends BaseModel {
   }
 
   async saveAllSettings(settings: Settings): Promise<void> {
-    await this.setBudget(settings.budget);
     this.setD1ProxyUrl(settings.d1ProxyUrl);
     this.setD1Token(settings.d1Token);
+    await this.setBudget(settings.budget);
+
   }
 }
