@@ -1,95 +1,75 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { execQuery } from '$lib/api';
+  import { SettingsPresenter } from '$lib/presenters/SettingsPresenter';
+  import type { Settings, SettingItem, ModalResult } from '$lib/types';
 
-  // Settings form
-  let settings = $state({
+  // Presenter instance
+  let presenter: SettingsPresenter;
+
+  // State
+  let settings = $state<Settings>({
     budget: 3500000,
     d1ProxyUrl: '',
     d1Token: ''
   });
 
+  let settingsList = $state<SettingItem[]>([]);
+  let loading = $state(false);
+  let error = $state('');
+
   // Modal states
   let showResultModal = $state(false);
-  let result = $state<{type: 'success' | 'error', message: string} | null>(null);
-  let loading = $state(false);
+  let result = $state<ModalResult | null>(null);
 
-  // Settings list
-  let settingsList = $state<any[]>([]);
+  // Initialize presenter and set up state setters
+  onMount(() => {
+    presenter = new SettingsPresenter();
+    
+    // Inject state setters into presenter
+    presenter.setSettings = (settingsData: Settings) => {
+      settings = settingsData;
+    };
+    
+    presenter.setSettingsList = (list: SettingItem[]) => {
+      settingsList = list;
+    };
+    
+    presenter.showModal = (modalResult: ModalResult) => {
+      result = modalResult;
+      showResultModal = true;
+    };
+    
+    presenter.setLoading = (isLoading: boolean) => {
+      loading = isLoading;
+    };
+    
+    presenter.setError = (errorMessage: string) => {
+      error = errorMessage;
+    };
+
+    // Load initial settings
+    loadSettings();
+  });
 
   async function loadSettings() {
-    try {
-      const data = await execQuery(`SELECT * FROM settings ORDER BY key`);
-      settingsList = data.result?.[0]?.results || [];
-      
-      // Populate form with existing values
-      const budgetSetting = settingsList.find(s => s.key === 'budget');
-      
-      if (budgetSetting) settings.budget = Number(budgetSetting.value);
-      
-      // Load D1 settings from localStorage (browser only)
-      if (typeof window !== 'undefined') {
-        settings.d1ProxyUrl = localStorage.getItem('d1_proxy_url') || '';
-        settings.d1Token = localStorage.getItem('d1_token') || '';
-      }
-      
-      // Add D1 settings to the display list (for UI purposes)
-      if (settings.d1ProxyUrl) {
-        settingsList.push({ key: 'd1_proxy_url', value: settings.d1ProxyUrl });
-      }
-      if (settings.d1Token) {
-        settingsList.push({ key: 'd1_token', value: '••••••••' });
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-    }
+    await presenter.loadSettings();
   }
-
-  onMount(loadSettings);
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    loading = true;
     
-    try {
-      // Update budget in SQLite
-      await execQuery(
-        `INSERT INTO settings (key, value) VALUES ('budget', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        [settings.budget.toString()]
-      );
-      
-      // Save D1 settings to localStorage (browser only)
-      if (typeof window !== 'undefined') {
-        if (settings.d1ProxyUrl.trim()) {
-          localStorage.setItem('d1_proxy_url', settings.d1ProxyUrl.trim());
-        } else {
-          localStorage.removeItem('d1_proxy_url');
-        }
-        
-        if (settings.d1Token.trim()) {
-          localStorage.setItem('d1_token', settings.d1Token.trim());
-        } else {
-          localStorage.removeItem('d1_token');
-        }
-      }
-      
-      result = {
-        type: 'success',
-        message: 'Settings have been saved successfully!'
-      };
-      
-      // Reload settings list
-      await loadSettings();
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      result = {
-        type: 'error',
-        message: 'Failed to save settings. Please try again.'
-      };
+    // Validate settings using presenter
+    const validationErrors = presenter.validateSettings(settings);
+    if (validationErrors.length > 0) {
+      error = validationErrors.join(', ');
+      return;
     }
-    
-    loading = false;
-    showResultModal = true;
+
+    // Clear previous errors
+    error = '';
+
+    // Save settings using presenter
+    await presenter.saveSettings(settings);
   }
 
   function closeModal() {
@@ -97,11 +77,10 @@
     result = null;
   }
 
-  function formatKey(key: string) {
-    return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  function formatKey(key: string): string {
+    return presenter.formatKey(key);
   }
 </script>
-
 
 <!-- Current Settings List -->
 <div class="mb-8">
@@ -141,6 +120,12 @@
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-600 p-6">
   <h3 class="text-lg font-medium mb-6 text-gray-900 dark:text-white">Update Settings</h3>
   
+  {#if error}
+    <div class="mb-4 p-4 bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded">
+      {error}
+    </div>
+  {/if}
+  
   <form class="space-y-6" onsubmit={(e) => handleSubmit(e)}>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
@@ -150,6 +135,8 @@
           bind:value={settings.budget} 
           class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
           placeholder="Enter budget amount"
+          min="0"
+          step="1000"
           required 
         />
         <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Set your monthly budget limit</p>
@@ -193,7 +180,7 @@
 <!-- Result Modal -->
 {#if showResultModal}
   <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
       <div class="flex items-center mb-4">
         {#if result?.type === 'success'}
           <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -204,18 +191,18 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
           </svg>
         {/if}
-        <h3 class="text-lg font-semibold text-gray-900">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
           {result?.type === 'success' ? 'Success' : 'Error'}
         </h3>
       </div>
       
-      <p class="text-gray-600 mb-6">
+      <p class="text-gray-600 dark:text-slate-300 mb-6">
         {result?.message}
       </p>
       
       <div class="flex justify-end">
         <button 
-          class="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-4 py-2"
           onclick={closeModal}
         >
           OK
@@ -224,5 +211,3 @@
     </div>
   </div>
 {/if}
-
-

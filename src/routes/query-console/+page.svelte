@@ -6,27 +6,36 @@
   import { onMount } from "svelte";
   import { Modal } from "flowbite-svelte";
   import { Chart, registerables } from "chart.js";
-  import { execQueryProxy } from "$lib/api";
+  import { QueryPresenter } from '$lib/presenters/QueryPresenter';
+  import type { 
+    QueryExecutionResult, 
+    SavedQuery, 
+    ChartData, 
+    ModalResult 
+  } from '$lib/types';
 
-  // Register zoom plugin only on client side
-  let zoomPlugin: any = null;
+  // Presenter instance
+  let presenter: QueryPresenter;
 
-  // --- STATE ---
-  let editorContainer: HTMLDivElement;
-  let editor: any;
+  // State
   let query = $state("SELECT category, sum(amount) amount FROM expenses GROUP BY category");
-  let results = $state<any[]>([]);
+  let queryResult = $state<QueryExecutionResult | null>(null);
+  let chartData = $state<ChartData | null>(null);
+  let savedQueries = $state<SavedQuery[]>([]);
   let showChart = $state(false);
+  let showResultsTable = $state(true);
+  let loading = $state(false);
+  let error = $state('');
+
+  // Chart state
   let xColumn = $state("-");
   let yColumn = $state("-");
   let chartType = $state<"line" | "bar" | "-">("line");
-  let savedQueries = $state<any[]>([]);
-  let title = $state("");
   let chartCanvas: HTMLCanvasElement;
   let chartInstance: Chart | null = null;
-  let showSaveModal = $state(false);
-  
+
   // Modal states
+  let showSaveModal = $state(false);
   let showChartWarningModal = $state(false);
   let showSaveErrorModal = $state(false);
   let showSaveSuccessModal = $state(false);
@@ -35,20 +44,63 @@
   let deleteQueryId = $state<number | null>(null);
   let isDeleting = $state(false);
   let isQueryRunning = $state(false);
-  let showResultsTable = $state(true);
+  let saveQueryTitle = $state("");
 
-  const columns = () => (results[0] ? Object.keys(results[0]) : []);
+  // Monaco Editor
+  let editorContainer: HTMLDivElement;
+  let editor: any;
+  let zoomPlugin: any = null;
 
-  // --- MONACO EDITOR INIT ---
+  // Initialize presenter and set up state setters
   onMount(async () => {
-    // Import and register zoom plugin only on client side
-    zoomPlugin = await import("chartjs-plugin-zoom");
-    const zoomPluginModule = zoomPlugin.default || zoomPlugin;
-    Chart.register(...registerables, zoomPluginModule);
-    console.log("Zoom plugin registered:", zoomPluginModule);
+    presenter = new QueryPresenter();
+    
+    // Inject state setters into presenter
+    presenter.setQueryResult = (result: QueryExecutionResult | null) => {
+      queryResult = result;
+    };
+    
+    presenter.setChartData = (data: ChartData | null) => {
+      chartData = data;
+    };
+    
+    presenter.setSavedQueries = (queries: SavedQuery[]) => {
+      savedQueries = queries;
+    };
+    
+    presenter.showModal = (modalResult: ModalResult) => {
+      if (modalResult.type === 'success') {
+        showSaveSuccessModal = true;
+      } else {
+        showSaveErrorModal = true;
+      }
+    };
+    
+    presenter.setLoading = (isLoading: boolean) => {
+      loading = isLoading;
+      isQueryRunning = isLoading;
+    };
+    
+    presenter.setError = (errorMessage: string) => {
+      error = errorMessage;
+    };
 
+    // Initialize Monaco Editor and Chart.js
+    await initializeEditor();
+    await initializeChart();
+    await loadSavedQueries();
+    
+    // Cleanup function
+    return () => {
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+    };
+  });
+
+  async function initializeEditor() {
     const monaco = await import("monaco-editor");
-
     editor = monaco.editor.create(editorContainer, {
       value: query,
       language: "sql",
@@ -56,103 +108,136 @@
       automaticLayout: true,
       minimap: { enabled: false },
       fontSize: 14,
+      lineNumbers: "on",
+      roundedSelection: false,
+      scrollBeyondLastLine: false,
+      readOnly: false,
+      cursorStyle: "line",
     });
 
+    // Update query when editor content changes
     editor.onDidChangeModelContent(() => {
       query = editor.getValue();
     });
+  }
 
-    // Simple SQL autocomplete
-    monaco.languages.registerCompletionItemProvider("sql", {
-      provideCompletionItems: () => {
-        const suggestions = [
-          "SELECT",
-          "FROM",
-          "WHERE",
-          "GROUP BY",
-          "ORDER BY",
-          "INSERT INTO",
-          "UPDATE",
-          "DELETE",
-          "expenses",
-          "title",
-          "category",
-          "labels",
-          "amount",
-          "id"
-        ].map((kw) => ({
-          label: kw,
-          kind: monaco.languages.CompletionItemKind.Keyword,
-          insertText: kw + " ",
-        }));
-        return { suggestions };
-      },
-    });
+  async function initializeChart() {
+    // Import and register zoom plugin only on client side
+    zoomPlugin = await import("chartjs-plugin-zoom");
+    const zoomPluginModule = zoomPlugin.default || zoomPlugin;
+    Chart.register(...registerables, zoomPluginModule);
+    console.log("Zoom plugin registered:", zoomPluginModule);
+  }
 
-    await fetchSavedQueries();
-  });
-
-  // --- FETCH / RUN QUERIES ---
-  async function fetchSavedQueries() {
-    const data = await execQueryProxy("SELECT * FROM saved_queries ORDER BY id DESC", []);
-    savedQueries = data.result?.[0]?.results || [];
+  async function loadSavedQueries() {
+    console.log('Loading saved queries...');
+    await presenter.loadSavedQueries();
+    console.log('Saved queries loaded:', savedQueries);
   }
 
   async function runQuery() {
-    isQueryRunning = true;
-    try {
-      const data = await execQueryProxy(query, []);
-      results = data.result?.[0]?.results || [];
-      showChart = false;
-    } finally {
-      isQueryRunning = false;
+    // Validate query using presenter
+    const validationErrors = presenter.validateQuery(query);
+    if (validationErrors.length > 0) {
+      error = validationErrors.join(', ');
+      return;
     }
+
+    // Clear previous errors
+    error = '';
+
+    // Execute query using presenter
+    await presenter.executeQuery(query);
   }
 
-  // --- CHART FUNCTIONS ---
-  function destroyChart() {
-    if (chartInstance) {
+  function toggleChart() {
+    showChart = !showChart;
+    if (showChart && chartData) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        renderChart();
+      }, 100);
+    } else if (!showChart && chartInstance) {
+      // Clean up chart when hiding
       chartInstance.destroy();
       chartInstance = null;
     }
   }
 
-  function createChart() {
-    if (!chartCanvas || !results.length || xColumn === "-" || yColumn === "-") return;
+  function toggleResultsTable() {
+    showResultsTable = !showResultsTable;
+  }
 
-    destroyChart();
+  function generateCustomChart() {
+    if (!queryResult || !xColumn || !yColumn || !chartType || xColumn === '-' || yColumn === '-' || chartType === '-') {
+      error = 'Please select X column, Y column, and chart type';
+      return;
+    }
 
-    const labels = results.map((row) => row[xColumn]);
-    const data = results.map((row) => Number(row[yColumn]));
+    // Check if Y column contains numeric values
+    const isNumeric = queryResult.results.every(row => 
+      !isNaN(Number(row[yColumn]))
+    );
 
-    // Reset canvas width for responsive chart with zoom
-    chartCanvas.style.width = '100%';
+    if (!isNumeric) {
+      error = 'Y column must contain numeric values for charting';
+      return;
+    }
 
-    console.log("Creating chart with zoom plugin available:", !!zoomPlugin);
+    // Clear previous errors
+    error = '';
+
+    // Generate custom chart data - create plain objects, not $state objects
+    const labels = queryResult.results.map(row => String(row[xColumn]));
+    const data = queryResult.results.map(row => Number(row[yColumn]));
     
-    chartInstance = new Chart(chartCanvas, {
-      type: chartType === "line" ? "line" : "bar",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: yColumn,
-            data,
-            borderColor: "rgb(59, 130, 246)",
-            backgroundColor:
-              chartType === "bar" ? "rgba(59, 130, 246, 0.5)" : "rgba(59, 130, 246, 0.1)",
-            borderWidth: 2,
-            fill: chartType === "line",
-            tension: chartType === "line" ? 0.4 : 0,
-          },
-        ],
-      },
+    const customChartData = {
+      labels: labels,
+      datasets: [{
+        label: yColumn,
+        data: data,
+        backgroundColor: chartType === 'bar' ? 'rgba(59, 130, 246, 0.5)' : undefined,
+        borderColor: 'rgba(59, 130, 246, 1)',
+        fill: chartType === 'line' ? false : undefined,
+      }],
+    };
+
+    chartData = customChartData;
+    showChart = true;
+    
+    // Render the chart after a short delay to ensure DOM is updated
+    setTimeout(renderChart, 100);
+  }
+
+  function renderChart() {
+    if (!chartData || !chartCanvas || !chartCanvas.getContext) return;
+
+    // Destroy existing chart
+    if (chartInstance) {
+      chartInstance.destroy();
+      chartInstance = null;
+    }
+
+    const ctx = chartCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Create a deep copy of chart data to avoid $state issues
+    const chartDataCopy = {
+      labels: [...chartData.labels],
+      datasets: chartData.datasets.map(dataset => ({
+        ...dataset,
+        data: [...dataset.data]
+      }))
+    };
+
+    chartInstance = new Chart(ctx, {
+      type: chartType === 'line' ? 'line' : 'bar',
+      data: chartDataCopy,
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        aspectRatio: 16 / 9,
         plugins: {
-          title: { display: true, text: `${yColumn} over ${xColumn}` },
-          legend: { display: false },
           zoom: {
             zoom: {
               wheel: {
@@ -171,336 +256,446 @@
         },
         scales: {
           x: {
-            ticks: {
-              maxRotation: 45,
-              minRotation: 45,
-            },
+            beginAtZero: true
           },
           y: {
-            beginAtZero: true,
-            ticks: {
-              callback: (v: any) =>
-                new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR" }).format(v),
-            },
-          },
-        },
-      },
+            beginAtZero: true
+          }
+        }
+      }
     });
-    
-    console.log("Chart created:", chartInstance);
-  }
-
-  function toggleChart() {
-    if (showChart) {
-      destroyChart();
-      showChart = false;
-    } else if (results.length && xColumn !== "-" && yColumn !== "-") {
-      showChart = true;
-      setTimeout(createChart, 100);
-    } else {
-      showChartWarningModal = true;
-    }
   }
 
   function resetZoom() {
-    if (chartInstance && chartInstance.resetZoom) {
+    if (chartInstance) {
       chartInstance.resetZoom();
     }
   }
 
-  // --- SAVE / LOAD QUERIES ---
   function openSaveModal() {
+    saveQueryTitle = "";
     showSaveModal = true;
   }
 
   function closeSaveModal() {
     showSaveModal = false;
-    title = "";
+    saveQueryTitle = "";
   }
 
   async function saveCurrentQuery() {
-    if (!title.trim()) {
-      showSaveErrorModal = true;
+    if (!saveQueryTitle.trim()) {
+      error = "Please enter a title for the query";
       return;
     }
-    const sql = `INSERT INTO saved_queries (title, sql, xColumn, yColumn, chart_type) VALUES (?, ?, ?, ?, ?)`;
-    await execQueryProxy(sql, [title, query, xColumn, yColumn, chartType]);
-    showSaveSuccessModal = true;
+
+    await presenter.saveQuery(saveQueryTitle.trim(), query);
     closeSaveModal();
-    await fetchSavedQueries();
   }
 
-  function loadSavedQuery(sq: any) {
-    query = sq.sql;
-    xColumn = sq.xColumn || "-";
-    yColumn = sq.yColumn || "-";
-    chartType = sq.chart_type || "line";
+  function loadSavedQuery(savedQuery: SavedQuery) {
+    console.log('Loading saved query:', savedQuery);
+    
+    if (!savedQuery || !savedQuery.sql) {
+      console.error('Invalid saved query:', savedQuery);
+      return;
+    }
+    
+    // Update the query text
+    query = savedQuery.sql;
+    
+    // Update the Monaco editor if it exists
+    if (editor) {
+      editor.setValue(savedQuery.sql);
+      console.log('Monaco editor updated with query');
+    } else {
+      console.warn('Monaco editor not available yet, will retry...');
+      // Retry after a short delay
+      setTimeout(() => {
+        if (editor) {
+          editor.setValue(savedQuery.sql);
+          console.log('Monaco editor updated on retry');
+        }
+      }, 100);
+    }
+    
+    // Clear any previous results and chart data
+    queryResult = null;
+    chartData = null;
     showChart = false;
-
-    if (editor) editor.setValue(query);
+    
+    // Reset chart configuration
+    xColumn = '-';
+    yColumn = '-';
+    chartType = 'line';
+    
+    console.log('Query loaded successfully:', query);
   }
 
-  function deleteSavedQuery(id: number) {
-    deleteQueryId = id;
+  function showDeleteConfirm(queryId: number) {
+    deleteQueryId = queryId;
     showDeleteConfirmModal = true;
   }
 
+  function closeDeleteConfirm() {
+    showDeleteConfirmModal = false;
+    deleteQueryId = null;
+  }
+
   async function confirmDelete() {
-    console.log(deleteQueryId)
-    if (deleteQueryId === null) return;
-    
-    isDeleting = true;
-    try {
-      await execQueryProxy("DELETE FROM saved_queries WHERE id = ?", [deleteQueryId]);
-      showDeleteConfirmModal = false;
-      showDeleteSuccessModal = true;
-      deleteQueryId = null;
-      await fetchSavedQueries();
-    } finally {
-      isDeleting = false;
+    if (deleteQueryId) {
+      await presenter.deleteSavedQuery(deleteQueryId);
+      closeDeleteConfirm();
     }
   }
 
-  // --- Reactive Chart Refresh ---
-  $effect(() => {
-    if (showChart && chartInstance && chartType !== "-") {
-      createChart();
-    }
-  });
+  function closeModals() {
+    showSaveModal = false;
+    showChartWarningModal = false;
+    showSaveErrorModal = false;
+    showSaveSuccessModal = false;
+    showDeleteConfirmModal = false;
+    showDeleteSuccessModal = false;
+    saveQueryTitle = "";
+    deleteQueryId = null;
+  }
+
+  function formatExecutionTime(time: number): string {
+    return presenter.formatExecutionTime(time);
+  }
+
+  function getColumns(): string[] {
+    return queryResult?.results?.[0] ? Object.keys(queryResult.results[0]) : [];
+  }
 </script>
 
-<h2 class="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Query Console</h2>
+<div class="max-w-7xl mx-auto p-6">
+  <h2 class="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">Query Console</h2>
+  
+  {#if error}
+    <div class="mb-4 p-4 bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded">
+      {error}
+    </div>
+  {/if}
 
-<div class="space-y-3">
-  <!-- Monaco Editor -->
-  <div bind:this={editorContainer} class="h-40 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800"></div>
-
-  <button 
-    class="text-blue-700 dark:text-blue-400 border border-blue-700 dark:border-blue-400 rounded px-5 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center" 
-    onclick={runQuery}
-    disabled={isQueryRunning}
-  >
-    {#if isQueryRunning}
-      <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-      </svg>
-      Running...
-    {:else}
-      Run Query
-    {/if}
-  </button>
-
-  {#if results.length > 0}
-    <!-- Results Table -->
-    <div class="mt-4">
+  <!-- Query Editor -->
+  <div class="mb-6">
+    <div class="bg-gray-900 rounded-lg p-4">
+      <div bind:this={editorContainer} class="h-64"></div>
+    </div>
+    
+    <div class="mt-4 flex gap-2">
       <button 
-        class="flex items-center justify-between w-full p-4 text-left text-gray-500 dark:text-slate-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 focus:ring-4 focus:ring-gray-200 dark:focus:ring-slate-500"
-        onclick={() => showResultsTable = !showResultsTable}
+        class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        onclick={runQuery}
+        disabled={isQueryRunning}
       >
-        <span class="font-medium text-gray-900 dark:text-slate-100">Query Results ({results.length} rows)</span>
-        <svg class="w-3 h-3 transition-transform duration-200 {showResultsTable ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-        </svg>
+        {isQueryRunning ? 'Running...' : 'Run Query'}
       </button>
-      <div class="overflow-hidden transition-all duration-300 ease-in-out {showResultsTable ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}">
-        <div class="overflow-auto max-h-[500px] border border-t-0 rounded-b-lg bg-white dark:bg-slate-800">
+      
+      <button 
+        class="text-green-700 dark:text-green-400 bg-white dark:bg-slate-800 border border-green-700 dark:border-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 focus:ring-4 focus:ring-green-300 dark:focus:ring-green-600 font-medium rounded-lg text-sm px-4 py-2"
+        onclick={openSaveModal}
+      >
+        Save Query
+      </button>
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  {#if queryResult}
+    <div class="mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+          Results ({queryResult.rowCount} rows, {formatExecutionTime(queryResult.executionTime)})
+        </h3>
+        
+        <div class="flex gap-2">
+          <button 
+            class="text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600 font-medium rounded-lg text-sm px-3 py-1"
+            onclick={toggleResultsTable}
+          >
+            {showResultsTable ? 'Hide' : 'Show'} Table
+          </button>
+        </div>
+      </div>
+
+      <!-- Results Table -->
+      {#if showResultsTable}
+        <div class="overflow-auto max-h-96 border border-gray-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 mb-4">
           <table class="w-full text-sm text-left">
-            <thead class="text-xs text-gray-700 dark:text-slate-200 uppercase bg-gray-50 dark:bg-slate-700 sticky top-0 z-10">
-              <tr>{#each columns() as col}<th class="px-4 py-2">{col}</th>{/each}</tr>
+            <thead class="text-xs text-gray-700 dark:text-slate-200 uppercase bg-gray-50 dark:bg-slate-700 sticky top-0">
+              <tr>
+                {#each getColumns() as column}
+                  <th class="px-4 py-2">{column}</th>
+                {/each}
+              </tr>
             </thead>
             <tbody>
-              {#each results as row}
-                <tr class="border-t border-gray-200 dark:border-slate-600">{#each columns() as col}<td class="px-4 py-2 text-gray-900 dark:text-slate-100">{row[col]}</td>{/each}</tr>
+              {#each queryResult.results as row}
+                <tr class="border-t border-gray-200 dark:border-slate-600">
+                  {#each getColumns() as column}
+                    <td class="px-4 py-2 text-gray-900 dark:text-slate-100">{row[column]}</td>
+                  {/each}
+                </tr>
               {/each}
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
+      {/if}
 
-    <!-- Chart Controls -->
-    <div class="mt-6 bg-gray-50 dark:bg-slate-700 rounded-lg p-4">
-      <h3 class="text-lg font-medium mb-4 text-gray-900 dark:text-slate-100">Chart Configuration</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-          <label class="block mb-2 text-gray-700 dark:text-slate-200">X-axis</label>
-          <select bind:value={xColumn} class="w-full border border-gray-300 dark:border-slate-600 rounded p-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">
-            <option value="-">Select column</option>
-            {#each columns() as c}<option value={c}>{c}</option>{/each}
-          </select>
+      <!-- Chart Configuration -->
+      {#if queryResult && queryResult.results.length > 0}
+        <div class="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg p-4 mb-4">
+          <h4 class="text-md font-semibold text-gray-900 dark:text-white mb-4">Chart Configuration</h4>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">X Axis (Labels)</label>
+              <select 
+                bind:value={xColumn}
+                class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5"
+              >
+                <option value="-">Select X Column</option>
+                {#each getColumns() as column}
+                  <option value={column}>{column}</option>
+                {/each}
+              </select>
+              {#if xColumn && xColumn !== '-'}
+                <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Selected: {xColumn}</p>
+              {/if}
+            </div>
+            
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Y Axis (Data)</label>
+              <select 
+                bind:value={yColumn}
+                class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5"
+              >
+                <option value="-">Select Y Column</option>
+                {#each getColumns() as column}
+                  <option value={column}>{column}</option>
+                {/each}
+              </select>
+              {#if yColumn && yColumn !== '-'}
+                <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Selected: {yColumn}</p>
+              {/if}
+            </div>
+            
+            <div>
+              <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Chart Type</label>
+              <select 
+                bind:value={chartType}
+                class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5"
+              >
+                <option value="-">Select Chart Type</option>
+                <option value="line">Line Chart</option>
+                <option value="bar">Bar Chart</option>
+              </select>
+              {#if chartType && chartType !== '-'}
+                <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Selected: {chartType === 'line' ? 'Line Chart' : 'Bar Chart'}</p>
+              {/if}
+            </div>
+          </div>
+          
+          <div class="mt-4 flex gap-2">
+            <button 
+              class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-4 py-2"
+              onclick={generateCustomChart}
+            >
+              Generate Chart
+            </button>
+            
+            {#if chartData}
+              <button 
+                class="text-purple-700 dark:text-purple-400 bg-white dark:bg-slate-800 border border-purple-700 dark:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus:ring-4 focus:ring-purple-300 dark:focus:ring-purple-600 font-medium rounded-lg text-sm px-4 py-2"
+                onclick={toggleChart}
+              >
+                {showChart ? 'Hide' : 'Show'} Chart
+              </button>
+            {/if}
+          </div>
         </div>
-        <div>
-          <label class="block mb-2 text-gray-700 dark:text-slate-200">Y-axis</label>
-          <select bind:value={yColumn} class="w-full border border-gray-300 dark:border-slate-600 rounded p-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">
-            <option value="-">Select column</option>
-            {#each columns() as c}<option value={c}>{c}</option>{/each}
-          </select>
-        </div>
-        <div>
-          <label class="block mb-2 text-gray-700 dark:text-slate-200">Chart Type</label>
-          <select bind:value={chartType} class="w-full border border-gray-300 dark:border-slate-600 rounded p-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">
-            <option value="-">Select type</option>
-            <option value="line">Line Chart</option>
-            <option value="bar">Bar Chart</option>
-          </select>
-        </div>
-        <div class="flex items-end">
-          <button
-            class="w-full text-emerald-700 border border-emerald-700 rounded px-4 py-2.5"
-            onclick={toggleChart}
-            disabled={xColumn === "-" || yColumn === "-" || chartType === "-"}
-          >
-            {showChart ? "Hide Chart" : "Show Chart"}
-          </button>
-        </div>
-      </div>
-    </div>
+      {/if}
 
-    <!-- Chart -->
-    {#if showChart}
-      <div class="mt-6 p-4 border border-gray-200 dark:border-slate-600 rounded bg-white dark:bg-slate-800">
-        <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-slate-100">Chart: {yColumn} over {xColumn}</h3>
-        <div class="relative h-96">
-          <canvas bind:this={chartCanvas}></canvas>
+      <!-- Chart -->
+      {#if showChart && chartData}
+        <div class="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg p-4">
+          <div class="flex justify-between items-center mb-4">
+            <h4 class="text-md font-semibold text-gray-900 dark:text-white">Chart Visualization</h4>
+            <button 
+              class="text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600 font-medium rounded-lg text-sm px-3 py-1"
+              onclick={resetZoom}
+            >
+              Reset Zoom
+            </button>
+          </div>
+          <div class="relative h-96">
+            <canvas bind:this={chartCanvas}></canvas>
+          </div>
         </div>
-        <div class="mt-4 flex justify-center gap-2">
-          <button class="text-indigo-700 dark:text-indigo-400 border border-indigo-700 dark:border-indigo-400 rounded px-6 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20" onclick={openSaveModal}>
-            Save Query & Chart
-          </button>
-          <button class="text-gray-700 dark:text-slate-300 border border-gray-700 dark:border-slate-500 rounded px-4 py-2 hover:bg-gray-50 dark:hover:bg-slate-700" onclick={resetZoom}>
-            Reset Zoom
-          </button>
-        </div>
-      </div>
-    {/if}
+      {/if}
+    </div>
   {/if}
 
   <!-- Saved Queries -->
-  <div class="mt-6">
-    <h3 class="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Saved Queries</h3>
-    <div class="flex flex-col gap-2">
-      {#each savedQueries as sq}
-        <div class="flex items-center justify-between p-3 border border-gray-200 dark:border-slate-600 rounded bg-gray-50 dark:bg-slate-700">
-          <div>
-            <div class="font-semibold text-gray-900 dark:text-slate-100">{sq.title || sq.sql}</div>
-            <div class="text-xs text-gray-600 dark:text-slate-400">
-              Chart: {sq.chart_type || "line"} | X: {sq.xColumn || "-"} | Y: {sq.yColumn || "-"}
+  <div class="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-600 p-6">
+    <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Saved Queries</h3>
+    
+    {#if savedQueries.length === 0}
+      <p class="text-gray-500 dark:text-slate-400">No saved queries found.</p>
+    {:else}
+      <div class="space-y-2">
+        {#each savedQueries as savedQuery}
+          <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+            <div class="flex-1">
+              <h4 class="font-semibold text-lg text-gray-900 dark:text-slate-100 mb-2">{savedQuery.title}</h4>
+              <div class="text-xs text-gray-600 dark:text-slate-400">
+                Chart: {savedQuery.chart_type || "line"} | X: {savedQuery.xColumn || "-"} | Y: {savedQuery.yColumn || "-"}
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button 
+                class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-3 py-1"
+                onclick={() => {
+                  console.log('Load button clicked for:', savedQuery);
+                  loadSavedQuery(savedQuery);
+                }}
+              >
+                Load
+              </button>
+              <button 
+                class="text-red-700 dark:text-red-400 bg-white dark:bg-slate-800 border border-red-700 dark:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-4 focus:ring-red-300 dark:focus:ring-red-600 font-medium rounded-lg text-sm px-3 py-1"
+                onclick={() => showDeleteConfirm(savedQuery.id)}
+              >
+                Delete
+              </button>
             </div>
           </div>
-          <div class="flex gap-2">
-            <button class="px-3 py-1 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700" onclick={() => loadSavedQuery(sq)}>Load</button>
-            <button class="px-3 py-1 border border-red-300 dark:border-red-600 rounded bg-white dark:bg-slate-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" onclick={() => deleteSavedQuery(sq.id)}>Delete</button>
-          </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 </div>
 
-<!-- Save Modal -->
+<!-- Save Query Modal -->
 {#if showSaveModal}
   <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
-      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Save Query & Chart</h3>
-      <input type="text" bind:value={title} placeholder="Enter title" class="w-full border border-gray-300 dark:border-slate-600 rounded p-2.5 mb-4 bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-slate-100"/>
-      <div class="flex justify-end gap-2">
-        <button class="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-slate-200 rounded hover:bg-gray-300 dark:hover:bg-slate-500" onclick={closeSaveModal}>Cancel</button>
-        <button class="px-4 py-2 bg-indigo-600 dark:bg-indigo-500 text-white rounded hover:bg-indigo-700 dark:hover:bg-indigo-600" onclick={saveCurrentQuery}>Save</button>
+      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Save Query</h3>
+      
+      <div class="mb-4">
+        <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Query Title</label>
+        <input 
+          type="text" 
+          bind:value={saveQueryTitle}
+          class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
+          placeholder="Enter query title"
+        />
+      </div>
+      
+      <div class="flex justify-end space-x-3">
+        <button 
+          class="text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600 font-medium rounded-lg text-sm px-4 py-2"
+          onclick={closeSaveModal}
+        >
+          Cancel
+        </button>
+        <button 
+          class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-4 py-2"
+          onclick={saveCurrentQuery}
+        >
+          Save
+        </button>
       </div>
     </div>
   </div>
 {/if}
 
-<!-- Chart Warning Modal -->
-<Modal bind:open={showChartWarningModal} size="sm">
-  <div class="text-center">
-    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
-      <svg class="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
-      </svg>
-    </div>
-    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Cannot show chart</h3>
-    <p class="text-sm text-gray-500 dark:text-slate-300 mb-4">Please run a query first and select X and Y columns</p>
-    <button class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700" onclick={() => showChartWarningModal = false}>OK</button>
-  </div>
-</Modal>
-
-<!-- Save Error Modal -->
-<Modal bind:open={showSaveErrorModal} size="sm">
-  <div class="text-center">
-    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
-      <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    </div>
-    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Error</h3>
-    <p class="text-sm text-gray-500 dark:text-slate-300 mb-4">Please provide a title for this query</p>
-    <button class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700" onclick={() => showSaveErrorModal = false}>OK</button>
-  </div>
-</Modal>
-
-<!-- Save Success Modal -->
-<Modal bind:open={showSaveSuccessModal} size="sm">
-  <div class="text-center">
-    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-      <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-      </svg>
-    </div>
-    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Saved!</h3>
-    <p class="text-sm text-gray-500 dark:text-slate-300 mb-4">Your query has been saved.</p>
-    <button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" onclick={() => showSaveSuccessModal = false}>OK</button>
-  </div>
-</Modal>
-
 <!-- Delete Confirmation Modal -->
-<Modal bind:open={showDeleteConfirmModal} size="sm">
-  <div class="text-center">
-    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 mb-4">
-      <svg class="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
-      </svg>
-    </div>
-    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Are you sure?</h3>
-    <p class="text-sm text-gray-500 dark:text-slate-300 mb-4">Delete this saved query?</p>
-    <div class="flex justify-center gap-2">
-      <button 
-        class="px-4 py-2 bg-gray-200 dark:bg-slate-600 text-gray-800 dark:text-slate-200 rounded hover:bg-gray-300 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed" 
-        onclick={() => showDeleteConfirmModal = false} 
-        disabled={isDeleting}
-      >
-        Cancel
-      </button>
-      <button 
-        class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center" 
-        onclick={confirmDelete} 
-        disabled={isDeleting}
-      >
-        {#if isDeleting}
-          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          Deleting...
-        {:else}
-          Yes, delete it!
-        {/if}
-      </button>
+{#if showDeleteConfirmModal}
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
+      <div class="flex items-center mb-4">
+        <svg class="w-6 h-6 text-red-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+        </svg>
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Confirm Delete</h3>
+      </div>
+      
+      <p class="text-gray-600 dark:text-slate-300 mb-6">
+        Are you sure you want to delete this saved query? This action cannot be undone.
+      </p>
+      
+      <div class="flex justify-end space-x-3">
+        <button 
+          class="text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:ring-4 focus:ring-gray-300 dark:focus:ring-gray-600 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          onclick={closeDeleteConfirm}
+          disabled={isDeleting}
+        >
+          Cancel
+        </button>
+        <button 
+          class="text-red-700 dark:text-red-400 bg-white dark:bg-slate-800 border border-red-700 dark:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-4 focus:ring-red-300 dark:focus:ring-red-600 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+          onclick={confirmDelete}
+          disabled={isDeleting}
+        >
+          {#if isDeleting}
+            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Deleting...
+          {:else}
+            Delete
+          {/if}
+        </button>
+      </div>
     </div>
   </div>
-</Modal>
+{/if}
 
-<!-- Delete Success Modal -->
-<Modal bind:open={showDeleteSuccessModal} size="sm">
-  <div class="text-center">
-    <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 mb-4">
-      <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-      </svg>
+<!-- Success/Error Modals -->
+{#if showSaveSuccessModal || showSaveErrorModal || showDeleteSuccessModal}
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
+      <div class="flex items-center mb-4">
+        {#if showSaveSuccessModal || showDeleteSuccessModal}
+          <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        {:else}
+          <svg class="w-6 h-6 text-red-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        {/if}
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+          {#if showSaveSuccessModal}
+            Success
+          {:else if showDeleteSuccessModal}
+            Success
+          {:else}
+            Error
+          {/if}
+        </h3>
+      </div>
+      
+      <p class="text-gray-600 dark:text-slate-300 mb-6">
+        {#if showSaveSuccessModal}
+          Query saved successfully!
+        {:else if showDeleteSuccessModal}
+          Query deleted successfully!
+        {:else}
+          Failed to save query. Please try again.
+        {/if}
+      </p>
+      
+      <div class="flex justify-end">
+        <button 
+          class="text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800 border border-blue-700 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-600 font-medium rounded-lg text-sm px-4 py-2"
+          onclick={closeModals}
+        >
+          OK
+        </button>
+      </div>
     </div>
-    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Deleted!</h3>
-    <p class="text-sm text-gray-500 dark:text-slate-300 mb-4">Your saved query has been deleted.</p>
-    <button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700" onclick={() => showDeleteSuccessModal = false}>OK</button>
   </div>
-</Modal>
+{/if}

@@ -81,7 +81,7 @@
           <!-- Dark Mode Toggle -->
           <button 
             onclick={toggleDarkMode}
-            class="p-2 text-gray-500 rounded-lg hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-700"
+            class="p-2 text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-700"
             title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {#if isDarkMode}
@@ -101,7 +101,7 @@
           <div class="relative" bind:this={dropdownElement}>
           <button 
             type="button" 
-            class="inline-flex items-center gap-2 px-3 py-2 text-sm text-gray-500 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-600"
+            class="inline-flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-700 dark:border-gray-400 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/20 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-600"
             onclick={toggleDropdown}
           >
             <span class="font-medium">Menu</span>
