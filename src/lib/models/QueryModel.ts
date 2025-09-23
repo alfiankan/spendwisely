@@ -1,29 +1,14 @@
 import { BaseModel } from './BaseModel';
-import type { QueryExecutionResult, SavedQuery, QueryResult } from '../types';
+import type { QueryExecutionResult, SavedQuery } from '../types';
 
 export class QueryModel extends BaseModel {
   async executeQuery(sql: string, params: unknown[] = []): Promise<QueryExecutionResult> {
     const startTime = performance.now();
     
-    const response = await this.makeRequest<QueryResult>('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
+    const results = await super.executeQuery<any>(sql, params);
 
     const endTime = performance.now();
     const executionTime = endTime - startTime;
-
-    // Handle different possible response structures
-    let results: any[] = [];
-    if (response.result && Array.isArray(response.result) && response.result[0]?.results) {
-      results = response.result[0].results;
-    } else if (response.results) {
-      results = response.results;
-    } else if (response.result && Array.isArray(response.result)) {
-      results = response.result;
-    } else if (Array.isArray(response)) {
-      results = response;
-    }
 
     return {
       results,

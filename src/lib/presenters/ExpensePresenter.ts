@@ -42,17 +42,17 @@ export class ExpensePresenter extends BasePresenter {
     const result = await this.executeWithLoading(async () => {
       this.setUploadingFiles(true);
       
-      // Upload files if any
-      let attachmentUrls: string[] = [];
+      // Convert files to base64 if any
+      let attachmentsData: string | undefined;
       if (files.length > 0) {
-        const uploadResults = await this.fileModel.uploadMultipleFiles(files);
-        attachmentUrls = uploadResults.map(result => result.url);
+        const base64Files = await this.convertFilesToBase64(files);
+        attachmentsData = JSON.stringify(base64Files);
       }
 
-      // Create expense with attachments
+      // Create expense with base64 attachments
       const expense: Omit<Expense, 'id'> = {
         ...expenseData,
-        attachments: attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : undefined,
+        attachments: attachmentsData,
       };
 
       await this.expenseModel.createExpense(expense);
@@ -111,11 +111,32 @@ export class ExpensePresenter extends BasePresenter {
     if (!attachmentsJson) return [];
     
     try {
-      const urls: string[] = JSON.parse(attachmentsJson);
-      return urls.map((url, index) => ({
-        url,
-        fileName: `File ${index + 1}`,
-      }));
+      const attachments = JSON.parse(attachmentsJson);
+      
+      // Handle both old URL format and new base64 format
+      if (Array.isArray(attachments)) {
+        return attachments.map((attachment, index) => {
+          if (typeof attachment === 'string') {
+            // Old format: array of URLs
+            return {
+              url: attachment,
+              fileName: `File ${index + 1}`,
+            };
+          } else if (attachment && typeof attachment === 'object' && attachment.base64) {
+            // New format: array of objects with base64 data
+            return {
+              url: `data:${attachment.mimeType};base64,${attachment.base64}`,
+              fileName: attachment.fileName || `File ${index + 1}`,
+            };
+          }
+          return {
+            url: '',
+            fileName: `File ${index + 1}`,
+          };
+        });
+      }
+      
+      return [];
     } catch (error) {
       console.error('Error parsing attachments:', error);
       return [];
@@ -129,9 +150,34 @@ export class ExpensePresenter extends BasePresenter {
     }).format(amount);
   }
 
-  validateFileSize(file: File, maxSizeMB: number = 10): boolean {
+  validateFileSize(file: File, maxSizeMB: number = 1): boolean {
     const maxSizeBytes = maxSizeMB * 1024 * 1024;
     return file.size <= maxSizeBytes;
+  }
+
+  async convertFileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async convertFilesToBase64(files: File[]): Promise<{ fileName: string; base64: string; mimeType: string }[]> {
+    const results = await Promise.all(
+      files.map(async (file) => ({
+        fileName: file.name,
+        base64: await this.convertFileToBase64(file),
+        mimeType: file.type
+      }))
+    );
+    return results;
   }
 
   validateExpenseData(expense: Partial<Expense>): string[] {

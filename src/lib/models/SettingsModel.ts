@@ -1,44 +1,18 @@
 import { BaseModel } from './BaseModel';
-import type { Settings, SettingItem, QueryResult } from '../types';
+import type { Settings, SettingItem } from '../types';
 
 export class SettingsModel extends BaseModel {
   async getAllSettings(): Promise<SettingItem[]> {
     const sql = `SELECT * FROM settings ORDER BY key`;
-    const response = await this.makeRequest<QueryResult>('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params: [] }),
-    });
-
-    let results: any[] = [];
-    if (response.result && Array.isArray(response.result) && response.result[0]?.results) {
-      results = response.result[0].results;
-    } else if (response.results) {
-      results = response.results;
-    } else if (response.result && Array.isArray(response.result)) {
-      results = response.result;
-    }
-
-    return results as SettingItem[];
+    const results = await this.executeQuery<SettingItem>(sql, []);
+    return results;
   }
 
   async getSetting(key: string): Promise<string | null> {
     const sql = `SELECT value FROM settings WHERE key = ?`;
     const params = [key];
 
-    const response = await this.makeRequest<QueryResult>('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
-
-    let results: any[] = [];
-    if (response.result && Array.isArray(response.result) && response.result[0]?.results) {
-      results = response.result[0].results;
-    } else if (response.results) {
-      results = response.results;
-    } else if (response.result && Array.isArray(response.result)) {
-      results = response.result;
-    }
-
+    const results = await this.executeQuery<{ value: string }>(sql, params);
     return results.length > 0 ? results[0].value : null;
   }
 
@@ -46,10 +20,7 @@ export class SettingsModel extends BaseModel {
     const sql = `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
     const params = [key, value];
 
-    await this.makeRequest('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
+    await this.executeQuery(sql, params);
   }
 
   async getBudget(): Promise<number> {
@@ -61,57 +32,56 @@ export class SettingsModel extends BaseModel {
     await this.setSetting('budget', budget.toString());
   }
 
-  // Local storage methods for D1 configuration
-  getD1ProxyUrl(): string {
+  // Local storage methods for Turso configuration
+  getTursoHost(): string {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('d1_proxy_url') || '';
+      return localStorage.getItem('turso_host') || '';
     }
     return '';
   }
 
-  setD1ProxyUrl(url: string): void {
+  setTursoHost(host: string): void {
     if (typeof window !== 'undefined') {
-      if (url.trim()) {
-        localStorage.setItem('d1_proxy_url', url.trim());
+      if (host.trim()) {
+        localStorage.setItem('turso_host', host.trim());
       } else {
-        localStorage.removeItem('d1_proxy_url');
+        localStorage.removeItem('turso_host');
       }
     }
   }
 
-  getD1Token(): string {
+  getTursoToken(): string {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('d1_token') || '';
+      return localStorage.getItem('turso_token') || '';
     }
     return '';
   }
 
-  setD1Token(token: string): void {
+  setTursoToken(token: string): void {
     if (typeof window !== 'undefined') {
       if (token.trim()) {
-        localStorage.setItem('d1_token', token.trim());
+        localStorage.setItem('turso_token', token.trim());
       } else {
-        localStorage.removeItem('d1_token');
+        localStorage.removeItem('turso_token');
       }
     }
   }
 
   async loadAllSettings(): Promise<Settings> {
     const budget = await this.getBudget();
-    const d1ProxyUrl = this.getD1ProxyUrl();
-    const d1Token = this.getD1Token();
+    const tursoHost = this.getTursoHost();
+    const tursoToken = this.getTursoToken();
 
     return {
       budget,
-      d1ProxyUrl,
-      d1Token,
+      tursoHost,
+      tursoToken,
     };
   }
 
   async saveAllSettings(settings: Settings): Promise<void> {
-    this.setD1ProxyUrl(settings.d1ProxyUrl);
-    this.setD1Token(settings.d1Token);
+    this.setTursoHost(settings.tursoHost);
+    this.setTursoToken(settings.tursoToken);
     await this.setBudget(settings.budget);
-
   }
 }

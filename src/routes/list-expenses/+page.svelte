@@ -13,7 +13,6 @@
 
   // Presenter instance
   let presenter: ExpensePresenter;
-
   // State
   let expenses = $state<Expense[]>([]);
   let statistics = $state<ExpenseStatistics>({
@@ -39,9 +38,11 @@
   // Modal states
   let showConfirmModal = $state(false);
   let showResultModal = $state(false);
+  let showImageModal = $state(false);
   let expenseToDelete = $state<Expense | null>(null);
   let deleteResult = $state<ModalResult | null>(null);
   let isDeleting = $state(false);
+  let selectedImage = $state<{ url: string; fileName: string } | null>(null);
 
   // Initialize presenter and set up state setters
   onMount(() => {
@@ -114,12 +115,33 @@
   function closeModals() {
     showConfirmModal = false;
     showResultModal = false;
+    showImageModal = false;
     deleteResult = null;
     expenseToDelete = null;
+    selectedImage = null;
   }
 
   function parseAttachments(attachmentsJson?: string): AttachmentInfo[] {
     return presenter.parseAttachments(attachmentsJson);
+  }
+
+  function isImageFile(fileName: string): boolean {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+    const extension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+    return imageExtensions.includes(extension);
+  }
+
+  function previewImage(attachment: AttachmentInfo) {
+    if (isImageFile(attachment.fileName)) {
+      selectedImage = {
+        url: attachment.url,
+        fileName: attachment.fileName
+      };
+      showImageModal = true;
+    } else {
+      // For non-image files, open in new tab
+      window.open(attachment.url, '_blank');
+    }
   }
 </script>
 
@@ -230,17 +252,32 @@
               {#if attachments.length > 0}
                 <div class="flex flex-wrap gap-1">
                   {#each attachments as attachment}
-                    <a 
-                      href={attachment.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      class="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/40"
-                    >
-                      <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
-                      </svg>
-                      {attachment.fileName}
-                    </a>
+                    {#if isImageFile(attachment.fileName)}
+                      <button 
+                        onclick={() => previewImage(attachment)}
+                        class="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-900/40 transition-colors"
+                        title="Preview image"
+                      >
+                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                        {attachment.fileName}
+                      </button>
+                    {:else}
+                      <a 
+                        href={attachment.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        class="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/40 transition-colors"
+                        title="Open file"
+                      >
+                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                        </svg>
+                        {attachment.fileName}
+                      </a>
+                    {/if}
                   {/each}
                 </div>
               {:else}
@@ -336,6 +373,84 @@
         >
           OK
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Image Preview Modal -->
+{#if showImageModal && selectedImage}
+  <div 
+    class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" 
+    onclick={closeModals}
+    onkeydown={(e) => e.key === 'Escape' && closeModals()}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="image-modal-title"
+    tabindex="-1"
+  >
+    <div 
+      class="relative max-w-4xl max-h-[90vh] w-full mx-4"
+    >
+      <!-- Close button -->
+      <button 
+        onclick={closeModals}
+        class="absolute top-4 right-4 z-10 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 transition-colors"
+        aria-label="Close image preview"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+      
+      <!-- Image container -->
+      <div class="bg-white dark:bg-slate-800 rounded-lg overflow-hidden shadow-2xl">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-slate-600">
+          <h3 id="image-modal-title" class="text-lg font-semibold text-gray-900 dark:text-white truncate">
+            {selectedImage.fileName}
+          </h3>
+        </div>
+        
+        <!-- Image -->
+        <div class="relative">
+          <img 
+            src={selectedImage.url} 
+            alt={selectedImage.fileName}
+            class="max-w-full max-h-[70vh] w-auto h-auto mx-auto block"
+            onerror={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              const nextElement = target.nextElementSibling as HTMLElement;
+              if (nextElement) {
+                nextElement.style.display = 'flex';
+              }
+            }}
+          />
+          <!-- Error fallback -->
+          <div class="hidden flex-col items-center justify-center p-8 text-gray-500 dark:text-slate-400">
+            <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <p class="text-lg font-medium">Failed to load image</p>
+            <p class="text-sm">The image could not be displayed</p>
+          </div>
+        </div>
+        
+        <!-- Footer with actions -->
+        <div class="px-6 py-4 border-t border-gray-200 dark:border-slate-600 flex justify-between items-center">
+          <div class="text-sm text-gray-500 dark:text-slate-400">
+            Click outside to close
+          </div>
+          <div class="flex space-x-2">
+            <button 
+              onclick={closeModals}
+              class="inline-flex items-center px-3 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

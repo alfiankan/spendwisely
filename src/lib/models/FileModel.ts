@@ -3,6 +3,10 @@ import type { FileUploadResult } from '../types';
 
 export class FileModel extends BaseModel {
   async uploadFile(file: File): Promise<FileUploadResult> {
+    // Note: Turso is a database service and doesn't handle file uploads directly.
+    // This method is kept for backward compatibility but will need to be 
+    // implemented with a separate file storage service (e.g., AWS S3, Cloudflare R2, etc.)
+    
     const baseUrl = this.getApiUrl();
     const apiUrl = `${baseUrl}/upload`;
     
@@ -31,6 +35,9 @@ export class FileModel extends BaseModel {
   }
 
   async getPresignedUrl(fileKey: string): Promise<string> {
+    // Note: This method is kept for backward compatibility but will need to be 
+    // implemented with a separate file storage service
+    
     const baseUrl = this.getApiUrl();
     const apiUrl = `${baseUrl}/presign?key=${encodeURIComponent(fileKey)}`;
     

@@ -1,9 +1,9 @@
 import type { ModalResult } from '../types';
 
 export abstract class BasePresenter {
-  protected showModal: (result: ModalResult) => void = () => {};
-  protected setLoading: (loading: boolean) => void = () => {};
-  protected setError: (error: string) => void = () => {};
+  public showModal: (result: ModalResult) => void = () => {};
+  public setLoading: (loading: boolean) => void = () => {};
+  public setError: (error: string) => void = () => {};
 
   protected showSuccess(message: string): void {
     this.showModal({ type: 'success', message });

@@ -44,16 +44,16 @@ export class SettingsPresenter extends BasePresenter {
       // Combine database settings with local storage settings
       const allSettings: SettingItem[] = [...dbSettings];
       
-      if (currentSettings.d1ProxyUrl) {
+      if (currentSettings.tursoHost) {
         allSettings.push({ 
-          key: 'd1_proxy_url', 
-          value: currentSettings.d1ProxyUrl 
+          key: 'turso_host', 
+          value: currentSettings.tursoHost 
         });
       }
       
-      if (currentSettings.d1Token) {
+      if (currentSettings.tursoToken) {
         allSettings.push({ 
-          key: 'd1_token', 
+          key: 'turso_token', 
           value: '••••••••' 
         });
       }
@@ -75,8 +75,8 @@ export class SettingsPresenter extends BasePresenter {
       errors.push('Budget must be a positive number');
     }
     
-    if (settings.d1ProxyUrl && !this.isValidUrl(settings.d1ProxyUrl)) {
-      errors.push('D1 Proxy URL must be a valid URL');
+    if (settings.tursoHost && !this.isValidUrl(settings.tursoHost)) {
+      errors.push('Turso Host URL must be a valid URL');
     }
 
     return errors;

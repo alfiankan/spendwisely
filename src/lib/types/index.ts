@@ -31,8 +31,8 @@ export interface ExpenseStatistics {
 
 export interface Settings {
   budget: number;
-  d1ProxyUrl: string;
-  d1Token: string;
+  tursoHost: string;
+  tursoToken: string;
 }
 
 export interface SettingItem {
@@ -59,6 +59,49 @@ export interface QueryResult {
     changes: number;
     duration: number;
   };
+}
+
+// Turso HTTP API response types
+export interface TursoResponse {
+  baton: string | null;
+  base_url: string | null;
+  results: TursoResult[];
+}
+
+export interface TursoResult {
+  type: 'ok' | 'error';
+  response?: {
+    type: 'execute' | 'close';
+    result?: {
+      cols: TursoColumn[];
+      rows: TursoRow[][];
+      affected_row_count: number;
+      last_insert_rowid: string | null;
+      replication_index: string | null;
+      rows_read: number;
+      rows_written: number;
+      query_duration_ms: number;
+    };
+  };
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface TursoColumn {
+  name: string;
+  decltype: string;
+}
+
+export interface TursoRow {
+  type: 'null' | 'integer' | 'float' | 'text' | 'blob';
+  value: string | null;
+}
+
+export interface TursoArg {
+  type: 'null' | 'integer' | 'float' | 'text' | 'blob';
+  value: string | null;
 }
 
 // File upload types
@@ -102,6 +145,47 @@ export interface QueryExecutionResult {
   results: any[];
   executionTime: number;
   rowCount: number;
+}
+
+// Report types
+export interface ExpenseRecord {
+  id: number;
+  record_range_label: string;
+  record_start: string;
+  record_end: string;
+}
+
+export interface ExpenseSnapshot {
+  id: number;
+  report_id: number;
+  title: string;
+  note: string;
+  amount: number;
+  datetime: string;
+  labels: string;
+  category: string;
+  attachments?: string;
+}
+
+export interface ReportSummary {
+  totalBudget: number;
+  totalExpenses: number;
+  remaining: number;
+  percentageUsed: number;
+  expensesByCategory: { [category: string]: number };
+  expensesByLabel: { [label: string]: number };
+  maxExpense: { amount: number; title: string; datetime: string };
+  averageExpense: number;
+  comparisonWithPrevious?: {
+    previousTotal: number;
+    difference: number;
+    percentageChange: number;
+  };
+}
+
+export interface ReportFilters {
+  sortBy: 'record_start' | 'record_end';
+  sortOrder: 'asc' | 'desc';
 }
 
 // Constants

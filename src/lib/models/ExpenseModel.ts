@@ -1,5 +1,5 @@
 import { BaseModel } from './BaseModel';
-import type { Expense, ExpenseFilters, QueryResult } from '../types';
+import type { Expense, ExpenseFilters } from '../types';
 
 export class ExpenseModel extends BaseModel {
   async getAllExpenses(filters: ExpenseFilters): Promise<Expense[]> {
@@ -18,24 +18,8 @@ export class ExpenseModel extends BaseModel {
     
     sql += ` ORDER BY ${filters.sortBy} ${filters.sortOrder.toUpperCase()}`;
 
-    const response = await this.makeRequest<QueryResult>('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
-
-    // Handle different possible response structures
-    let results: any[] = [];
-    if (response.result?.[0]?.results) {
-      results = response.result[0].results;
-    } else if (response.results) {
-      results = response.results;
-    } else if (response.result) {
-      results = response.result;
-    } else if (Array.isArray(response)) {
-      results = response;
-    }
-
-    return results as Expense[];
+    const results = await this.executeQuery<Expense>(sql, params);
+    return results;
   }
 
   async createExpense(expense: Omit<Expense, 'id'>): Promise<void> {
@@ -50,40 +34,21 @@ export class ExpenseModel extends BaseModel {
       expense.attachments || null
     ];
 
-    await this.makeRequest('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
+    await this.executeQuery(sql, params);
   }
 
   async deleteExpense(id: number): Promise<void> {
     const sql = `DELETE FROM expenses WHERE id = ?`;
     const params = [id];
 
-    await this.makeRequest('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
+    await this.executeQuery(sql, params);
   }
 
   async getExpenseById(id: number): Promise<Expense | null> {
     const sql = `SELECT * FROM expenses WHERE id = ?`;
     const params = [id];
 
-    const response = await this.makeRequest<QueryResult>('/query', {
-      method: 'POST',
-      body: JSON.stringify({ sql, params }),
-    });
-
-    let results: any[] = [];
-    if (response.result?.[0]?.results) {
-      results = response.result[0].results;
-    } else if (response.results) {
-      results = response.results;
-    } else if (response.result) {
-      results = response.result;
-    }
-
-    return results.length > 0 ? (results[0] as Expense) : null;
+    const results = await this.executeQuery<Expense>(sql, params);
+    return results.length > 0 ? results[0] : null;
   }
 }

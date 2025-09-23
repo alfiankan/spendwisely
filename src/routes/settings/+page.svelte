@@ -9,8 +9,8 @@
   // State
   let settings = $state<Settings>({
     budget: 3500000,
-    d1ProxyUrl: '',
-    d1Token: ''
+    tursoHost: 'https://alfifinance-alfiankan.aws-ap-northeast-1.turso.io',
+    tursoToken: ''
   });
 
   let settingsList = $state<SettingItem[]>([]);
@@ -98,7 +98,7 @@
           <tr class="border-t border-gray-200 dark:border-slate-600">
             <td class="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{formatKey(setting.key)}</td>
             <td class="px-4 py-3 text-gray-900 dark:text-slate-100">
-              {#if setting.key === 'd1_token'}
+              {#if setting.key === 'turso_token'}
                 <span class="text-gray-500 dark:text-slate-400">••••••••</span>
               {:else}
                 {setting.value}
@@ -120,6 +120,20 @@
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-600 p-6">
   <h3 class="text-lg font-medium mb-6 text-gray-900 dark:text-white">Update Settings</h3>
   
+  <div class="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+    <div class="flex items-start">
+      <svg class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      <div>
+        <h4 class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">Turso Configuration</h4>
+        <p class="text-sm text-blue-700 dark:text-blue-300">
+          Configure your Turso database connection. You can find your database URL and token in your Turso dashboard.
+        </p>
+      </div>
+    </div>
+  </div>
+  
   {#if error}
     <div class="mb-4 p-4 bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-300 rounded">
       {error}
@@ -129,8 +143,9 @@
   <form class="space-y-6" onsubmit={(e) => handleSubmit(e)}>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
-        <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Budget (Rp)</label>
+        <label for="budget" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Budget (Rp)</label>
         <input 
+          id="budget"
           type="number" 
           bind:value={settings.budget} 
           class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
@@ -143,26 +158,28 @@
       </div>
       
       <div>
-        <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">D1 Proxy URL</label>
+        <label for="turso-host" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Turso Host</label>
         <input 
+          id="turso-host"
           type="url" 
-          bind:value={settings.d1ProxyUrl} 
+          bind:value={settings.tursoHost} 
           class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
-          placeholder="https://your-d1-proxy.com"
+          placeholder="https://your-database.turso.io"
         />
-        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">D1 database proxy endpoint</p>
+        <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Turso database host URL</p>
       </div>
     </div>
     
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">D1 Token</label>
+      <label for="turso-token" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Turso Token</label>
       <input 
+        id="turso-token"
         type="password" 
-        bind:value={settings.d1Token} 
+        bind:value={settings.tursoToken} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
-        placeholder="Enter D1 authentication token"
+        placeholder="Enter Turso authentication token"
       />
-      <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Authentication token for D1 database access</p>
+      <p class="mt-1 text-xs text-gray-500 dark:text-slate-400">Authentication token for Turso database access</p>
     </div>
     
     <div class="flex justify-end">

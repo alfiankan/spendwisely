@@ -24,7 +24,7 @@
   let error = $state('');
 
   // File upload state
-  let files: FileList | null = null;
+  let files = $state<FileList | null>(null);
   let selectedFiles = $state<File[]>([]);
   let uploadingFiles = $state(false);
 
@@ -68,7 +68,7 @@
       // Validate file sizes using presenter
       const validFiles = newFiles.filter(file => {
         if (!presenter.validateFileSize(file)) {
-          alert(`File "${file.name}" is too large. Maximum size is 10MB.`);
+          alert(`File "${file.name}" is too large. Maximum size is 1MB.`);
           return false;
         }
         return true;
@@ -151,8 +151,9 @@
 
   <form class="max-w-lg space-y-4" onsubmit={(e) => handleSubmit(e)}>
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Title</label>
+      <label for="title" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Title</label>
       <input 
+        id="title"
         type="text" 
         bind:value={form.title} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
@@ -162,8 +163,9 @@
     </div>
 
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Note</label>
+      <label for="note" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Note</label>
       <textarea 
+        id="note"
         bind:value={form.note} 
         rows="3" 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
@@ -172,8 +174,9 @@
     </div>
 
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Amount (Rp)</label>
+      <label for="amount" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Amount (Rp)</label>
       <input 
+        id="amount"
         type="number" 
         bind:value={form.amount} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
@@ -185,8 +188,9 @@
     </div>
 
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Date & Time</label>
+      <label for="datetime" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Date & Time</label>
       <input 
+        id="datetime"
         type="datetime-local" 
         bind:value={form.datetime} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5" 
@@ -195,8 +199,9 @@
     </div>
 
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Labels</label>
+      <label for="labels" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Labels</label>
       <select 
+        id="labels"
         bind:value={form.labels} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5"
         required
@@ -208,8 +213,9 @@
     </div>
 
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Category</label>
+      <label for="category" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Category</label>
       <select 
+        id="category"
         bind:value={form.category} 
         class="bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-100 text-sm rounded-lg focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-blue-500 dark:focus:border-blue-400 block w-full p-2.5"
         required
@@ -222,7 +228,7 @@
 
     <!-- File Upload Section -->
     <div>
-      <label class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Attachments (Optional)</label>
+      <label for="file-upload" class="block mb-2 text-sm font-medium text-gray-700 dark:text-slate-200">Attachments (Optional)</label>
       <div class="border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg p-6 text-center hover:border-gray-400 dark:hover:border-slate-500 transition-colors">
         <svg class="mx-auto h-12 w-12 text-gray-400 dark:text-slate-500" stroke="currentColor" fill="none" viewBox="0 0 48 48">
           <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -233,7 +239,7 @@
               Click to upload files or drag and drop
             </span>
             <span class="mt-1 block text-xs text-gray-500 dark:text-slate-400">
-              PNG, JPG, PDF up to 10MB each
+              PNG, JPG, PDF up to 1MB each
             </span>
           </label>
           <input 
@@ -267,6 +273,7 @@
                 type="button"
                 onclick={() => removeFile(index)}
                 class="text-red-700 dark:text-red-400 bg-white dark:bg-slate-800 border border-red-700 dark:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-4 focus:ring-red-300 dark:focus:ring-red-600 font-medium rounded-lg text-sm p-1"
+                aria-label="Remove file {file.name}"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
